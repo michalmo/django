@@ -483,7 +483,14 @@ class Value(ExpressionNode):
         self.value = value
 
     def as_sql(self, compiler, connection):
-        return '%s', [self.value]
+        val = self.value
+        if self._output_field_or_none is not None:
+            from django.db.models.sql.compiler import SQLUpdateCompiler
+            if isinstance(compiler, SQLUpdateCompiler):
+                val = self.output_field.get_db_prep_save(val, connection=connection)
+            else:
+                val = self.output_field.get_db_prep_value(val, connection=connection)
+        return '%s', [val]
 
 
 class DurationValue(Value):

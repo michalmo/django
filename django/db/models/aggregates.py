@@ -101,7 +101,6 @@ class Count(Aggregate):
     def __init__(self, expression, distinct=False, **extra):
         if expression == '*':
             expression = Value(expression)
-            expression._output_field = IntegerField()
         super(Count, self).__init__(
             expression, distinct='DISTINCT ' if distinct else '', output_field=IntegerField(), **extra)
 
