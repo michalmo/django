@@ -8,7 +8,7 @@ from django.utils.encoding import python_2_unicode_compatible
 class CaseTestModel(models.Model):
     integer = models.IntegerField()
     integer2 = models.IntegerField()
-    string = models.CharField(max_length=100)
+    string = models.CharField(max_length=100, null=True)
 
     big_integer = models.BigIntegerField(null=True)
     binary = models.BinaryField(null=True)

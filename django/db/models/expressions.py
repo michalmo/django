@@ -1,5 +1,6 @@
 import copy
 import datetime
+from operator import itemgetter
 
 from django.conf import settings
 from django.core.exceptions import FieldError
@@ -10,7 +11,7 @@ from django.db.models.query_utils import refs_aggregate, Q
 from django.db.models.sql.where import WhereNode, AND
 from django.utils import timezone
 from django.utils.functional import cached_property
-from django.utils.six.moves import range, zip
+from django.utils.six.moves import range, zip, map
 
 
 class CombinableMixin(object):
@@ -551,35 +552,22 @@ class BaseCaseExpression(ExpressionNode):
     """
     Base class for all case expressions.
     """
-    NoDefault = object()
-
-    def __init__(self, cases=None, default=NoDefault, output_field=None):
+    def __init__(self, cases=None, default=Value(None), output_field=None):
         super(BaseCaseExpression, self).__init__(output_field)
         self.cases = self._parse_cases(cases)
-        if default is self.NoDefault:
-            default = None
-        elif not hasattr(default, 'resolve_expression'):
-            default = F(default)
-        self.default = default
+        self.default = default if hasattr(default, 'resolve_expression') else F(default)
 
     def get_source_expressions(self):
-        source_expressions = [value for condition, value in self.cases]
-        if self.default is not None:
-            source_expressions.append(self.default)
-        return source_expressions
+        return [value for condition, value in self.cases] + [self.default]
 
     def set_source_expressions(self, exprs):
-        if self.default is not None:
-            self.default = exprs[-1]
-            exprs = exprs[:-1]
-        assert len(exprs) == len(self.cases)
-        self.cases = [(condition, new_value) for new_value, (condition, value) in zip(exprs, self.cases)]
+        assert len(exprs) == len(self.cases) + 1
+        self.cases = list(zip(map(itemgetter(0), self.cases), exprs[:-1]))
+        self.default = exprs[-1]
 
     def get_source_fields(self):
         """We're only interested in the fields of the value expressions."""
-        value_source_expressions = [value for condition, value in self.cases]
-        if self.default is not None:
-            value_source_expressions.append(self.default)
+        value_source_expressions = [value for condition, value in self.cases] + [self.default]
         return [e._output_field_or_none for e in value_source_expressions]
 
     def _parse_cases(self, cases):
@@ -610,9 +598,7 @@ class BaseCaseExpression(ExpressionNode):
 
     def as_sql(self, compiler, connection):
         if not self.cases:
-            if self.default is not None:
-                return compiler.compile(self.default)
-            return 'NULL', ()
+            return compiler.compile(self.default)
         predicate_sql, predicate_params = self.predicate_sql(compiler, connection)
         result = ['CASE']
         result_params = []
@@ -625,10 +611,9 @@ class BaseCaseExpression(ExpressionNode):
             result.append('WHEN %s THEN %s' % (condition_sql, value_sql))
             result_params.extend(condition_params)
             result_params.extend(value_params)
-        if self.default is not None:
-            default_sql, default_params = compiler.compile(self.default)
-            result.append('ELSE %s' % default_sql)
-            result_params.extend(default_params)
+        default_sql, default_params = compiler.compile(self.default)
+        result.append('ELSE %s' % default_sql)
+        result_params.extend(default_params)
         result.append('END')
         return ' '.join(result), result_params
 
@@ -654,27 +639,17 @@ class SimpleCase(BaseCaseExpression):
             ELSE 'I cannot count that high'
         END
     """
-    def __init__(self, predicate, cases=None, default=BaseCaseExpression.NoDefault, output_field=None):
+    def __init__(self, predicate, cases=None, default=Value(None), output_field=None):
         super(SimpleCase, self).__init__(cases, default, output_field)
         self.predicate = predicate if hasattr(predicate, 'resolve_expression') else F(predicate)
 
     def get_source_expressions(self):
-        source_expressions = [e for pair in self.cases for e in pair]
-        if self.predicate is not None:
-            source_expressions.append(self.predicate)
-        if self.default is not None:
-            source_expressions.append(self.default)
-        return source_expressions
+        return [e for pair in self.cases for e in pair] + [self.default, self.predicate]
 
     def set_source_expressions(self, exprs):
-        if self.default is not None:
-            self.default = exprs[-1]
-            exprs = exprs[:-1]
-        if self.predicate is not None:
-            self.predicate = exprs[-1]
-            exprs = exprs[:-1]
-        assert len(exprs) == len(self.cases) * 2
-        self.cases = [tuple(exprs[i:i + 2]) for i in range(0, len(exprs), 2)]
+        assert len(exprs) == len(self.cases) * 2 + 2
+        self.cases = [tuple(exprs[i:i + 2]) for i in range(0, len(exprs) - 2, 2)]
+        self.default, self.predicate = exprs[-2:]
 
     def _parse_cases(self, cases):
         if not cases:
@@ -709,7 +684,7 @@ class SearchedCase(BaseCaseExpression):
             ELSE 'zero'
         END
     """
-    def __init__(self, cases=None, default=BaseCaseExpression.NoDefault, output_field=None, where=WhereNode):
+    def __init__(self, cases=None, default=Value(None), output_field=None, where=WhereNode):
         super(SearchedCase, self).__init__(cases, default, output_field)
         self.where_class = where
 
@@ -735,7 +710,7 @@ class SearchedCase(BaseCaseExpression):
 
 
 class Case(object):
-    def __new__(cls, predicate=None, cases=None, default=BaseCaseExpression.NoDefault, output_field=None):
+    def __new__(cls, predicate=None, cases=None, default=Value(None), output_field=None):
         if predicate is None:
             return SearchedCase(cases, default, output_field)
         return SimpleCase(predicate, cases, default, output_field)

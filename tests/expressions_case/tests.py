@@ -49,6 +49,14 @@ class BaseCaseExpressionTests(TestCase):
             [(1, 'one'), (2, 'two'), (3, 'other'), (2, 'two'), (3, 'other'), (3, 'other'), (4, 'other')],
             transform=attrgetter('integer', 'test'))
 
+    def test_annotate_without_default(self):
+        self.assertQuerysetEqual(
+            CaseTestModel.objects.annotate(test=self.create_expression(
+                'integer', [(Value(1), Value('one')), (Value(2), Value('two'))],
+                output_field=models.CharField())).order_by('pk'),
+            [(1, 'one'), (2, 'two'), (3, None), (2, 'two'), (3, None), (3, None), (4, None)],
+            transform=attrgetter('integer', 'test'))
+
     def test_annotate_with_expression_as_value(self):
         self.assertQuerysetEqual(
             CaseTestModel.objects.annotate(f_test=self.create_expression(
@@ -135,19 +143,15 @@ class BaseCaseExpressionTests(TestCase):
             CaseTestModel.objects.aggregate(
                 one=models.Sum(self.create_expression(
                     'integer', [(Value(1), Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField())),
                 two=models.Sum(self.create_expression(
                     'integer', [(Value(2), Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField())),
                 three=models.Sum(self.create_expression(
                     'integer', [(Value(3), Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField())),
                 four=models.Sum(self.create_expression(
                     'integer', [(Value(4), Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField()))),
             {'one': 1, 'two': 2, 'three': 3, 'four': 1})
 
@@ -155,14 +159,11 @@ class BaseCaseExpressionTests(TestCase):
         self.assertEqual(
             CaseTestModel.objects.aggregate(
                 one=models.Sum(self.create_expression(
-                    'integer', [(Value(1), 'integer')],
-                    default=Value(0))),
+                    'integer', [(Value(1), 'integer')])),
                 two=models.Sum(self.create_expression(
-                    'integer', [(Value(2), F('integer') - 1)],
-                    default=Value(0))),
+                    'integer', [(Value(2), F('integer') - 1)])),
                 three=models.Sum(self.create_expression(
-                    'integer', [(Value(3), F('integer') + 1)],
-                    default=Value(0)))),
+                    'integer', [(Value(3), F('integer') + 1)]))),
             {'one': 1, 'two': 2, 'three': 12})
 
     def test_aggregate_with_expression_as_condition(self):
@@ -171,12 +172,10 @@ class BaseCaseExpressionTests(TestCase):
                 equal=models.Sum(self.create_expression(
                     'integer2',
                     [(F('integer'), Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField())),
                 plus_one=models.Sum(self.create_expression(
                     'integer2',
                     [(F('integer') + 1, Value(1))],
-                    default=Value(0),
                     output_field=models.IntegerField()))),
             {'equal': 3, 'plus_one': 4})
 
@@ -189,6 +188,16 @@ class BaseCaseExpressionTests(TestCase):
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
             [(1, 'one'), (2, 'two'), (3, 'other'), (2, 'two'), (3, 'other'), (3, 'other'), (4, 'other')],
+            transform=attrgetter('integer', 'string'))
+
+    def test_update_without_default(self):
+        CaseTestModel.objects.update(
+            string=self.create_expression(
+                'integer', [(Value(1), Value('one')), (Value(2), Value('two'))]))
+
+        self.assertQuerysetEqual(
+            CaseTestModel.objects.all().order_by('pk'),
+            [(1, 'one'), (2, 'two'), (3, None), (2, 'two'), (3, None), (3, None), (4, None)],
             transform=attrgetter('integer', 'string'))
 
     def test_update_with_expression_as_value(self):
