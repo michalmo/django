@@ -85,6 +85,30 @@ class Q(tree.Node):
                 clone.children.append(child)
         return clone
 
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+        # TODO: support allow_joins=False
+        # TODO: support empty, full Q
+        clause, _ = query._add_q(self, reuse)
+        return clause
+
+    def _refs_aggregate(self, obj, existing_aggregates):
+        if not existing_aggregates:
+            return False
+        if not isinstance(obj, tree.Node):
+            aggregate, aggregate_lookups = refs_aggregate(obj[0].split(LOOKUP_SEP), existing_aggregates)
+            if not aggregate and hasattr(obj[1], 'refs_aggregate'):
+                return obj[1].refs_aggregate(existing_aggregates)
+            return aggregate, aggregate_lookups
+        for c in obj.children:
+            aggregate, aggregate_lookups = self._refs_aggregate(c, existing_aggregates)
+            if aggregate:
+                return aggregate, aggregate_lookups
+        return False, ()
+
+    def refs_aggregate(self, existing_aggregates):
+        # TODO: Q.test refs_aggregate
+        return self._refs_aggregate(self, existing_aggregates)
+
 
 class DeferredAttribute(object):
     """

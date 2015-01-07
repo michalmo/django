@@ -14,9 +14,9 @@ class Aggregate(Func):
     contains_aggregate = True
     name = None
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
         assert len(self.source_expressions) == 1
-        c = super(Aggregate, self).resolve_expression(query, allow_joins, reuse, summarize)
+        c = super(Aggregate, self).resolve_expression(query, allow_joins, reuse, summarize, False)
         if c.source_expressions[0].contains_aggregate and not summarize:
             name = self.source_expressions[0].name
             raise FieldError("Cannot compute %s('%s'): '%s' is an aggregate" % (

@@ -10,7 +10,7 @@ from django.db import models
 from django.db.models import F, Q, Value
 from django.db.models.expressions import SearchedCase, SimpleCase
 from django.test import TestCase
-from django.utils.six import binary_type
+from django.utils.six import binary_type, text_type
 
 from .models import CaseTestModel, FKCaseTestModel
 
@@ -52,9 +52,9 @@ class BaseCaseExpressionTests(TestCase):
     def test_annotate_without_default(self):
         self.assertQuerysetEqual(
             CaseTestModel.objects.annotate(test=self.create_expression(
-                'integer', [(Value(1), Value('one')), (Value(2), Value('two'))],
-                output_field=models.CharField())).order_by('pk'),
-            [(1, 'one'), (2, 'two'), (3, None), (2, 'two'), (3, None), (3, None), (4, None)],
+                'integer', [(Value(1), Value(1)), (Value(2), Value(2))],
+                output_field=models.IntegerField())).order_by('pk'),
+            [(1, 1), (2, 2), (3, None), (2, 2), (3, None), (3, None), (4, None)],
             transform=attrgetter('integer', 'test'))
 
     def test_annotate_with_expression_as_value(self):
@@ -98,6 +98,18 @@ class BaseCaseExpressionTests(TestCase):
             [(1, 'equal'), (2, '+1'), (3, '+1'), (2, 'equal'), (3, '+1'), (3, 'equal'), (4, 'other')],
             transform=attrgetter('integer', 'join_test'))
 
+    def test_annotate_with_join_in_predicate(self):
+        self.assertQuerysetEqual(
+            CaseTestModel.objects.annotate(join_test=self.create_expression(
+                'fk_rel__integer',
+                [(Value(1), Value('one')),
+                 (Value(2), Value('two')),
+                 (Value(3), Value('three'))],
+                default=Value('other'),
+                output_field=models.CharField())).order_by('pk'),
+            [(1, 'one'), (2, 'two'), (3, 'three'), (2, 'two'), (3, 'three'), (3, 'three'), (4, 'one')],
+            transform=attrgetter('integer', 'join_test'))
+
     def test_annotate_with_annotation_in_value(self):
         self.assertQuerysetEqual(
             CaseTestModel.objects.annotate(
@@ -124,6 +136,21 @@ class BaseCaseExpressionTests(TestCase):
                     output_field=models.CharField())).order_by('pk'),
             [(1, 'equal'), (2, '+1'), (3, '+1'), (2, 'equal'), (3, '+1'), (3, 'equal'), (4, '+1')],
             transform=attrgetter('integer', 'f_test'))
+
+    def test_annotate_with_annotation_in_predicate(self):
+        self.assertQuerysetEqual(
+            CaseTestModel.objects.annotate(
+                f_minus_2=F('integer') - 2
+            ).annotate(
+                test=self.create_expression(
+                    'f_minus_2',
+                    [(Value(-1), Value('negative one')),
+                     (Value(0), Value('zero')),
+                     (Value(1), Value('one'))],
+                    default=Value('other'),
+                    output_field=models.CharField())).order_by('pk'),
+            [(1, 'negative one'), (2, 'zero'), (3, 'one'), (2, 'zero'), (3, 'one'), (3, 'one'), (4, 'other')],
+            transform=attrgetter('integer', 'test'))
 
     def test_in_subquery(self):
         self.assertQuerysetEqual(
@@ -192,13 +219,13 @@ class BaseCaseExpressionTests(TestCase):
 
     def test_update_without_default(self):
         CaseTestModel.objects.update(
-            string=self.create_expression(
-                'integer', [(Value(1), Value('one')), (Value(2), Value('two'))]))
+            integer2=self.create_expression(
+                'integer', [(Value(1), Value(1)), (Value(2), Value(2))]))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, 'one'), (2, 'two'), (3, None), (2, 'two'), (3, None), (3, None), (4, None)],
-            transform=attrgetter('integer', 'string'))
+            [(1, 1), (2, 2), (3, None), (2, 2), (3, None), (3, None), (4, None)],
+            transform=attrgetter('integer', 'integer2'))
 
     def test_update_with_expression_as_value(self):
         CaseTestModel.objects.update(
@@ -245,12 +272,13 @@ class BaseCaseExpressionTests(TestCase):
                 # set explicitly
                 [(Value(1), Value(b'one')),
                  (Value(2), Value(b'two'))],
+                default=Value(b''),
                 output_field=models.BinaryField()))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, b'one'), (2, b'two'), (3, None), (2, b'two'), (3, None), (3, None), (4, None)],
-            transform=lambda o: (o.integer, None if o.binary is None else binary_type(o.binary)))
+            [(1, b'one'), (2, b'two'), (3, b''), (2, b'two'), (3, b''), (3, b''), (4, b'')],
+            transform=lambda o: (o.integer, binary_type(o.binary)))
 
     def test_update_boolean(self):
         CaseTestModel.objects.update(
@@ -270,11 +298,12 @@ class BaseCaseExpressionTests(TestCase):
             comma_separated_integer=self.create_expression(
                 'integer',
                 [(Value(1), Value('1')),
-                 (Value(2), Value('2,2'))]))
+                 (Value(2), Value('2,2'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '1'), (2, '2,2'), (3, None), (2, '2,2'), (3, None), (3, None), (4, None)],
+            [(1, '1'), (2, '2,2'), (3, ''), (2, '2,2'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'comma_separated_integer'))
 
     def test_update_date(self):
@@ -334,12 +363,12 @@ class BaseCaseExpressionTests(TestCase):
             email=self.create_expression(
                 'integer',
                 [(Value(1), Value('1@example.com')),
-                 (Value(2), Value('2@example.com'))]))
+                 (Value(2), Value('2@example.com'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '1@example.com'), (2, '2@example.com'), (3, None), (2, '2@example.com'), (3, None), (3, None),
-             (4, None)],
+            [(1, '1@example.com'), (2, '2@example.com'), (3, ''), (2, '2@example.com'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'email'))
 
     def test_update_file(self):
@@ -351,19 +380,20 @@ class BaseCaseExpressionTests(TestCase):
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '~/1'), (2, '~/2'), (3, None), (2, '~/2'), (3, None), (3, None), (4, None)],
-            transform=attrgetter('integer', 'file'))
+            [(1, '~/1'), (2, '~/2'), (3, ''), (2, '~/2'), (3, ''), (3, ''), (4, '')],
+            transform=lambda o: (o.integer, text_type(o.file)))
 
     def test_update_file_path(self):
         CaseTestModel.objects.update(
             file_path=self.create_expression(
                 'integer',
                 [(Value(1), Value('~/1')),
-                 (Value(2), Value('~/2'))]))
+                 (Value(2), Value('~/2'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '~/1'), (2, '~/2'), (3, None), (2, '~/2'), (3, None), (3, None), (4, None)],
+            [(1, '~/1'), (2, '~/2'), (3, ''), (2, '~/2'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'file_path'))
 
     def test_update_float(self):
@@ -387,8 +417,8 @@ class BaseCaseExpressionTests(TestCase):
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '~/1'), (2, '~/2'), (3, None), (2, '~/2'), (3, None), (3, None), (4, None)],
-            transform=attrgetter('integer', 'image'))
+            [(1, '~/1'), (2, '~/2'), (3, ''), (2, '~/2'), (3, ''), (3, ''), (4, '')],
+            transform=lambda o: (o.integer, text_type(o.image)))
 
     def test_update_ip_address(self):
         CaseTestModel.objects.update(
@@ -411,11 +441,12 @@ class BaseCaseExpressionTests(TestCase):
                 # fails on postgresql if output_field is not set explicitly
                 [(Value(1), Value('1.1.1.1')),
                  (Value(2), Value('2.2.2.2'))],
+                default=Value(''),
                 output_field=models.GenericIPAddressField()))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '1.1.1.1'), (2, '2.2.2.2'), (3, None), (2, '2.2.2.2'), (3, None), (3, None), (4, None)],
+            [(1, '1.1.1.1'), (2, '2.2.2.2'), (3, ''), (2, '2.2.2.2'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'generic_ip_address'))
 
     def test_update_null_boolean(self):
@@ -459,11 +490,12 @@ class BaseCaseExpressionTests(TestCase):
             slug=self.create_expression(
                 'integer',
                 [(Value(1), Value('1')),
-                 (Value(2), Value('2'))]))
+                 (Value(2), Value('2'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '1'), (2, '2'), (3, None), (2, '2'), (3, None), (3, None), (4, None)],
+            [(1, '1'), (2, '2'), (3, ''), (2, '2'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'slug'))
 
     def test_update_small_integer(self):
@@ -478,16 +510,29 @@ class BaseCaseExpressionTests(TestCase):
             [(1, 1), (2, 2), (3, None), (2, 2), (3, None), (3, None), (4, None)],
             transform=attrgetter('integer', 'small_integer'))
 
+    def test_update_string(self):
+        CaseTestModel.objects.filter(string__in=['1', '2']).update(
+            string=self.create_expression(
+                'integer',
+                [(Value(1), Value('1', output_field=models.CharField())),
+                 (Value(2), Value('2', output_field=models.CharField()))]))
+
+        self.assertQuerysetEqual(
+            CaseTestModel.objects.filter(string__in=['1', '2']).order_by('pk'),
+            [(1, '1'), (2, '2'), (2, '2')],
+            transform=attrgetter('integer', 'string'))
+
     def test_update_text(self):
         CaseTestModel.objects.update(
             text=self.create_expression(
                 'integer',
                 [(Value(1), Value('1')),
-                 (Value(2), Value('2'))]))
+                 (Value(2), Value('2'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, '1'), (2, '2'), (3, None), (2, '2'), (3, None), (3, None), (4, None)],
+            [(1, '1'), (2, '2'), (3, ''), (2, '2'), (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'text'))
 
     def test_update_time(self):
@@ -509,12 +554,13 @@ class BaseCaseExpressionTests(TestCase):
             url=self.create_expression(
                 'integer',
                 [(Value(1), Value('http://1.example.com/')),
-                 (Value(2), Value('http://2.example.com/'))]))
+                 (Value(2), Value('http://2.example.com/'))],
+                default=Value('')))
 
         self.assertQuerysetEqual(
             CaseTestModel.objects.all().order_by('pk'),
-            [(1, 'http://1.example.com/'), (2, 'http://2.example.com/'), (3, None), (2, 'http://2.example.com/'),
-             (3, None), (3, None), (4, None)],
+            [(1, 'http://1.example.com/'), (2, 'http://2.example.com/'), (3, ''), (2, 'http://2.example.com/'),
+             (3, ''), (3, ''), (4, '')],
             transform=attrgetter('integer', 'url'))
 
     def test_update_uuid(self):
@@ -562,33 +608,6 @@ class SimpleCaseExpressionTests(BaseCaseExpressionTests):
                 output_field=models.CharField())).order_by('pk'),
             [(1, 'negative one'), (2, 'zero'), (3, 'one'), (2, 'zero'), (3, 'one'), (3, 'one'), (4, 'other')],
             transform=attrgetter('integer', 'f_test'))
-
-    def test_join_in_predicate(self):
-        self.assertQuerysetEqual(
-            CaseTestModel.objects.annotate(join_test=self.create_expression(
-                F('fk_rel__integer') - 2,
-                [(Value(-1), Value('negative one')),
-                 (Value(0), Value('zero')),
-                 (Value(1), Value('one'))],
-                default=Value('other'),
-                output_field=models.CharField())).order_by('pk'),
-            [(1, 'negative one'), (2, 'zero'), (3, 'one'), (2, 'zero'), (3, 'one'), (3, 'one'), (4, 'negative one')],
-            transform=attrgetter('integer', 'join_test'))
-
-    def test_annotation_in_predicate(self):
-        self.assertQuerysetEqual(
-            CaseTestModel.objects.annotate(
-                f_minus_2=F('integer') - 2
-            ).annotate(
-                test=self.create_expression(
-                    F('integer') - 2,
-                    [(Value(-1), Value('negative one')),
-                     (Value(0), Value('zero')),
-                     (Value(1), Value('one'))],
-                    default=Value('other'),
-                    output_field=models.CharField())).order_by('pk'),
-            [(1, 'negative one'), (2, 'zero'), (3, 'one'), (2, 'zero'), (3, 'one'), (3, 'one'), (4, 'other')],
-            transform=attrgetter('integer', 'test'))
 
 
 class SearchedCaseExpressionTests(BaseCaseExpressionTests):

@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db.models.fields import DateTimeField, Field
 from django.db.models.sql.datastructures import EmptyResultSet, Empty
 from django.utils.deprecation import RemovedInDjango19Warning
+from django.utils.functional import cached_property
 from django.utils.six.moves import range
 from django.utils import timezone
 from django.utils import tree
@@ -308,6 +309,31 @@ class WhereNode(tree.Node):
             else:
                 clone.children.append(child)
         return clone
+
+    def relabeled_clone(self, change_map):
+        clone = self.clone()
+        clone.relabel_aliases(change_map)
+        return clone
+
+    def _contains_aggregate(self, obj):
+        if not isinstance(obj, tree.Node):
+            return getattr(obj.rhs, 'contains_aggregate', False)
+        return any(self._contains_aggregate(c) for c in obj.children)
+
+    @cached_property
+    def contains_aggregate(self):
+        self._contains_aggregate(self)
+
+    def _refs_field(self, obj, aggregate_types, field_types):
+        if not isinstance(obj, tree.Node):
+            if hasattr(obj.rhs, 'refs_field'):
+                return obj.rhs.refs_field(aggregate_types, field_types)
+            return False
+        return any(self._refs_field(c, aggregate_types, field_types) for c in obj.children)
+
+    def refs_field(self, aggregate_types, field_types):
+        # TODO: test WhereNode.refs_field
+        return self._refs_field(self, aggregate_types, field_types)
 
 
 class EmptyWhere(WhereNode):
